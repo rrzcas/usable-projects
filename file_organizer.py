@@ -33,20 +33,13 @@ class FileOrganizer:
             list: List of file paths matching the pattern
         """
         matching_files = []
-        
-        # Define the search directory
         search_path = Path(self.source_dir)
         
-        # Use glob for recursive searching if requested
-        if recursive:
-            all_files = search_path.glob('**/*') # **=search through all subdirectories at any depth 
-        else: # * = match any file or folder name
-            all_files = search_path.glob('*') #use .glob for - finding files that match a pattern. 
-        # Filter files (not directories) containing the pattern
+        # Use appropriate glob pattern based on recursive flag
+        glob_pattern = '**/*' if recursive else '*'# **=search through all subdirectories at any depth# * = match any file or folder name
         
-            
-        # searching for files with the aiming key word in file names
-        for file_path in all_files:
+        # Find and filter files containing the pattern (case-insensitive)
+        for file_path in search_path.glob(glob_pattern):
             if file_path.is_file() and pattern.lower() in file_path.name.lower():
                 matching_files.append(str(file_path))
                 
@@ -116,8 +109,76 @@ class FileOrganizer:
         return results
 
 
-def interactive_mode():
-    """Run the program in interactive mode with user prompts."""
+def display_navigation_options(source_dir):
+    """Display available navigation options and subdirectories.
+    
+    Args:
+        source_dir (str): The current directory
+    """
+    print(f"\nCurrent directory: {source_dir}")
+    
+    # Show subdirectories to help user navigate
+    subdirs = [d for d in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, d))]
+    
+    print("\nAvailable subfolders:")
+    if subdirs:
+        for subdir in sorted(subdirs[:15]):  # Show up to 15 subdirectories, sorted alphabetically
+            print(f"  • {subdir}")
+        if len(subdirs) > 15:
+            print(f"  • ... and {len(subdirs)-15} more")
+    else:
+        print("  • (No subfolders found)")
+    
+    # Navigation options
+    print("\nNavigation options:")
+    print("  • Type a subfolder name to navigate into it")
+    print("  • Type '...' to go up to parent directory")
+    print("  • Type 'search' to start searching for files in current directory")
+    print("  • Type 'quit' to exit the program")
+
+
+def navigate_directories(source_dir):
+    """Let the user navigate through directories.
+    
+    Args:
+        source_dir (str): The starting directory
+        
+    Returns:
+        str: The selected directory
+    """
+    current_dir = source_dir
+    
+    while True:
+        display_navigation_options(current_dir)
+        
+        nav_choice = input("\nEnter navigation choice: ")
+        
+        if nav_choice.lower() == 'quit':
+            print("\nExiting File Organizer. Goodbye!")
+            sys.exit(0)
+        elif nav_choice.lower() == '...':
+            # Go up one level
+            parent_dir = os.path.dirname(current_dir)
+            if parent_dir and os.path.exists(parent_dir):
+                current_dir = parent_dir
+                print(f"\nNow in: {current_dir}")
+            else:
+                print("Already at the root directory.")
+        elif nav_choice.lower() == 'search':
+            # Break out of navigation loop to start searching
+            return current_dir
+        else:
+            # Check if user entered a valid subfolder name
+            potential_dir = os.path.join(current_dir, nav_choice)
+            if os.path.isdir(potential_dir):
+                current_dir = potential_dir
+                print(f"\nNow in: {current_dir}")
+            else:
+                print(f"'{nav_choice}' is not a valid subfolder in the current directory.")
+
+
+def show_welcome_message():
+    """Display welcome message and usage guide."""
     print("\n" + "=" * 60)
     print("📁 WELCOME TO FILE ORGANIZER 📁")
     print("This program helps you organize files based on keywords in their names.")
@@ -133,8 +194,14 @@ def interactive_mode():
     print("7. Confirm the move operation")
     print("\nTIP: You can organize multiple sets of files in one session!")
     print("=" * 60 + "\n")
+
+
+def get_initial_directory():
+    """Prompt user for initial directory and validate it.
     
-    # Get valid source directory
+    Returns:
+        str: Valid directory path
+    """
     valid_dir = False
     while not valid_dir:
         default_dir = os.path.expanduser("~/Documents")
@@ -153,222 +220,95 @@ def interactive_mode():
             valid_dir = True
     
     print(f"\nNow in: {source_dir}")
+    return source_dir
+
+
+def process_search_operation(organizer, source_dir):
+    """Handle the file search and organization process.
     
-    # Store visited directories to make navigation easier
-    visited_dirs = [source_dir]
-    current_dir_idx = 0
+    Args:
+        organizer (FileOrganizer): The file organizer instance
+        source_dir (str): Current directory
+        
+    Returns:
+        bool: True if user wants to continue organizing, False to exit
+    """
+    print("\n" + "-" * 50)
+    # Step 1: Get search keyword
+    pattern = input("Enter keyword to search for in filenames (or 'navigate' to change directory, 'quit' to exit): ")
+    if pattern.lower() == 'quit':
+        return False
+    elif pattern.lower() == 'navigate':
+        # Return to directory navigation - handled outside this function
+        return True
+        
+    # Ask about recursive search
+    recursive = input("Search in all subfolders too? (y/n, recommended 'y' for nested files): ")
+    use_recursive = recursive.lower() != 'n'  # Default to True unless explicitly 'n'
+        
+    # Show matching files first
+    matching_files = organizer.find_files_with_pattern(pattern, recursive=use_recursive)
     
-    # Navigation loop
-    while True:
-        # Show subdirectories to help user navigate
-        subdirs = [d for d in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, d))]
+    if not matching_files:
+        print(f"No files found containing '{pattern}'.")
+        print(f"Tips: Try a shorter keyword or check if you're searching in the right directory.")
+        for item in os.listdir(source_dir):
+            print(f"  • {item}")
+        print(f"Tips: Try a shorter keyword or check if you're searching in the right directory.")
+        if not use_recursive:
+            print("Consider enabling subfolder search with 'y' for nested files.")
+        return True
         
-        print("\nAvailable subfolders:")
-        if subdirs:
-            for subdir in sorted(subdirs[:15]):  # Show up to 15 subdirectories, sorted alphabetically
-                print(f"  • {subdir}")
-            if len(subdirs) > 15:
-                print(f"  • ... and {len(subdirs)-15} more")
+    print(f"\nFound {len(matching_files)} files containing '{pattern}':")
+    for i, file_path in enumerate(matching_files, 1):
+        # Show relative path for clarity when using recursive search
+        if use_recursive:
+            rel_path = os.path.relpath(file_path, source_dir)
+            print(f"  {i}. {rel_path}")
         else:
-            print("  • (No subfolders found)")
+            print(f"  {i}. {os.path.basename(file_path)}")
         
-        # Navigation options
-        print("\nNavigation options:")
-        print("  • Type a subfolder name to navigate into it")
-        print("  • Type '...' to go up to parent directory")
-        print("  • Type 'search' to start searching for files in current directory")
-        print("  • Type 'quit' to exit the program")
+    # Step 2: Get target folder name
+    target_folder = input(f"\nEnter name for the destination folder (default: '{pattern}'): ")
+    if not target_folder:
+        target_folder = pattern
         
-        nav_choice = input("\nEnter navigation choice: ")
+    # Confirm before moving
+    confirm = input(f"\nReady to move {len(matching_files)} files to '{target_folder}' folder. Proceed? (y/n): ")
+    if confirm.lower() != 'y':
+        print("Operation cancelled.")
+        return True
         
-        if nav_choice.lower() == 'quit':
-            print("\nExiting File Organizer. Goodbye!")
-            sys.exit(0)
-        elif nav_choice.lower() == '...':
-            # Go up one level
-            parent_dir = os.path.dirname(source_dir)
-            if parent_dir and os.path.exists(parent_dir):
-                source_dir = parent_dir
-                print(f"\nNow in: {source_dir}")
-                # Add to visited dirs if not already there
-                if source_dir not in visited_dirs:
-                    visited_dirs.append(source_dir)
-                current_dir_idx = visited_dirs.index(source_dir)
-            else:
-                print("Already at the root directory.")
-        elif nav_choice.lower() == 'search':
-            # Break out of navigation loop to start searching
-            break
-        else:
-            # Check if user entered a valid subfolder name
-            potential_dir = os.path.join(source_dir, nav_choice)
-            if os.path.isdir(potential_dir):
-                source_dir = potential_dir
-                print(f"\nNow in: {source_dir}")
-                # Add to visited dirs if not already there
-                if source_dir not in visited_dirs:
-                    visited_dirs.append(source_dir)
-                current_dir_idx = visited_dirs.index(source_dir)
-            else:
-                print(f"'{nav_choice}' is not a valid subfolder in the current directory.")
+    # Move the files
+    moved = organizer.organize_files(pattern, target_folder)
+    print(f"\nSuccessfully moved {moved} files to '{target_folder}' folder.")
+    print(f"Full path: {os.path.join(organizer.dest_dir, target_folder)}")
+    
+    # Ask if user wants to navigate to another directory before continuing
+    dir_option = input("\nWould you like to navigate to a different directory? (y/n): ")
+    return dir_option.lower() == 'y'
+
+
+def interactive_mode():
+    """Run the program in interactive mode with user prompts."""
+    show_welcome_message()
+    
+    # Get valid source directory
+    source_dir = get_initial_directory()
     
     # Create organizer
     organizer = FileOrganizer(source_dir)
     
     while True:
-        print("\n" + "-" * 50)
-        # Step 1: Get search keyword
-        pattern = input("Enter keyword to search for in filenames (or 'navigate' to change directory, 'quit' to exit): ")
-        if pattern.lower() == 'quit':
-            break
-        elif pattern.lower() == 'navigate':
-            # Return to directory navigation
-            while True:
-                # Show current directory and subdirectories
-                print(f"\nCurrent directory: {source_dir}")
-                
-                subdirs = [d for d in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, d))]
-                
-                print("\nAvailable subfolders:")
-                if subdirs:
-                    for subdir in sorted(subdirs[:15]):
-                        print(f"  • {subdir}")
-                    if len(subdirs) > 15:
-                        print(f"  • ... and {len(subdirs)-15} more")
-                else:
-                    print("  • (No subfolders found)")
-                
-                print("\nNavigation options:")
-                print("  • Type a subfolder name to navigate into it")
-                print("  • Type '...' to go up to parent directory")
-                print("  • Type 'search' to start searching for files in current directory")
-                print("  • Type 'quit' to exit the program")
-                
-                nav_choice = input("\nEnter navigation choice: ")
-                
-                if nav_choice.lower() == 'quit':
-                    print("\nExiting File Organizer. Goodbye!")
-                    sys.exit(0)
-                elif nav_choice.lower() == '...':
-                    # Go up one level
-                    parent_dir = os.path.dirname(source_dir)
-                    if parent_dir and os.path.exists(parent_dir):
-                        source_dir = parent_dir
-                        print(f"\nNow in: {source_dir}")
-                        # Update organizer with new source directory
-                        organizer = FileOrganizer(source_dir)
-                    else:
-                        print("Already at the root directory.")
-                elif nav_choice.lower() == 'search':
-                    # Break out of navigation loop to start searching
-                    break
-                else:
-                    # Check if user entered a valid subfolder name
-                    potential_dir = os.path.join(source_dir, nav_choice)
-                    if os.path.isdir(potential_dir):
-                        source_dir = potential_dir
-                        print(f"\nNow in: {source_dir}")
-                        # Update organizer with new source directory
-                        organizer = FileOrganizer(source_dir)
-                    else:
-                        print(f"'{nav_choice}' is not a valid subfolder in the current directory.")
-            
-            # Continue the main loop to search files
-            continue
-            
-        # Ask about recursive search
-        recursive = input("Search in all subfolders too? (y/n, recommended 'y' for nested files): ")
-        use_recursive = recursive.lower() != 'n'  # Default to True unless explicitly 'n'
-            
-        # Show matching files first
-        matching_files = organizer.find_files_with_pattern(pattern, recursive=use_recursive)
+        # Check if user wants to navigate
+        navigate_mode = True
         
-        if not matching_files:
-            print(f"No files found containing '{pattern}'.")
-            print(f"Tips: Try a shorter keyword or check if you're searching in the right directory.")
-            if not use_recursive:
-                print("Consider enabling subfolder search with 'y' for nested files.")
-            continue
+        while navigate_mode:
+            source_dir = navigate_directories(source_dir)
+            organizer = FileOrganizer(source_dir)  # Update organizer with new directory
             
-        print(f"\nFound {len(matching_files)} files containing '{pattern}':")
-        for i, file_path in enumerate(matching_files, 1):
-            # Show relative path for clarity when using recursive search
-            if use_recursive:
-                rel_path = os.path.relpath(file_path, source_dir)
-                print(f"  {i}. {rel_path}")
-            else:
-                print(f"  {i}. {os.path.basename(file_path)}")
-            
-        # Step 2: Get target folder name
-        target_folder = input(f"\nEnter name for the destination folder (default: '{pattern}'): ")
-        if not target_folder:
-            target_folder = pattern
-            
-        # Confirm before moving
-        confirm = input(f"\nReady to move {len(matching_files)} files to '{target_folder}' folder. Proceed? (y/n): ")
-        if confirm.lower() != 'y':
-            print("Operation cancelled.")
-            continue
-            
-        # Move the files
-        moved = organizer.organize_files(pattern, target_folder)
-        print(f"\nSuccessfully moved {moved} files to '{target_folder}' folder.")
-        print(f"Full path: {os.path.join(organizer.dest_dir, target_folder)}")
-        
-        # Ask if user wants to navigate to another directory before continuing
-        dir_option = input("\nWould you like to navigate to a different directory? (y/n): ")
-        if dir_option.lower() == 'y':
-            print("\nEntering directory navigation mode...")
-            # Return to directory navigation
-            while True:
-                # Show current directory and subdirectories
-                print(f"\nCurrent directory: {source_dir}")
-                
-                subdirs = [d for d in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, d))]
-                
-                print("\nAvailable subfolders:")
-                if subdirs:
-                    for subdir in sorted(subdirs[:15]):
-                        print(f"  • {subdir}")
-                    if len(subdirs) > 15:
-                        print(f"  • ... and {len(subdirs)-15} more")
-                else:
-                    print("  • (No subfolders found)")
-                
-                print("\nNavigation options:")
-                print("  • Type a subfolder name to navigate into it")
-                print("  • Type '...' to go up to parent directory")
-                print("  • Type 'search' to start searching for files in current directory")
-                print("  • Type 'quit' to exit the program")
-                
-                nav_choice = input("\nEnter navigation choice: ")
-                
-                if nav_choice.lower() == 'quit':
-                    print("\nExiting File Organizer. Goodbye!")
-                    sys.exit(0)
-                elif nav_choice.lower() == '...':
-                    # Go up one level
-                    parent_dir = os.path.dirname(source_dir)
-                    if parent_dir and os.path.exists(parent_dir):
-                        source_dir = parent_dir
-                        print(f"\nNow in: {source_dir}")
-                        # Update organizer with new source directory
-                        organizer = FileOrganizer(source_dir)
-                    else:
-                        print("Already at the root directory.")
-                elif nav_choice.lower() == 'search':
-                    # Break out of navigation loop to start searching
-                    break
-                else:
-                    # Check if user entered a valid subfolder name
-                    potential_dir = os.path.join(source_dir, nav_choice)
-                    if os.path.isdir(potential_dir):
-                        source_dir = potential_dir
-                        print(f"\nNow in: {source_dir}")
-                        # Update organizer with new source directory
-                        organizer = FileOrganizer(source_dir)
-                    else:
-                        print(f"'{nav_choice}' is not a valid subfolder in the current directory.")
+            # Process search and organization
+            navigate_mode = process_search_operation(organizer, source_dir)
     
     print("\nThank you for using File Organizer! Have a great day!")
 
@@ -379,7 +319,14 @@ def main():
     # Check if any command line arguments were provided
     if len(sys.argv) > 1:
         # Command line mode
-        parser = argparse.ArgumentParser(description='Organize files based on filename patterns')
+        parser = argparse.ArgumentParser(
+            description='File Organizer - Group files with matching keywords into folders',
+            epilog='Examples:\n'
+                  '  python file_organizer.py ~/Documents --pattern lecture --pattern report\n'
+                  '  python file_organizer.py ~/Documents --map lecture:Class_Notes --map pdf:Documents\n'
+                  '  python file_organizer.py -i',
+            formatter_class=argparse.RawDescriptionHelpFormatter
+        )
         parser.add_argument('source_dir', nargs='?', help='Directory containing files to organize')
         parser.add_argument('--dest-dir', help='Destination directory for organized files')
         parser.add_argument('--pattern', action='append', help='Pattern to search for (can be used multiple times)')
@@ -422,11 +369,7 @@ def main():
         
         # If no patterns specified, show usage example
         if not args.pattern and not args.map:
-            print("No patterns specified. Example usage:")
-            print("python file_organizer.py ~/Documents --pattern lcsw --pattern lec")
-            print("python file_organizer.py ~/Documents --map lcsw:LCSW_Files --map lec:Lecture_Notes")
-            print("\nOr run in interactive mode:")
-            print("python file_organizer.py -i")
+            parser.print_help()
     else:
         # No arguments, run interactive mode
         interactive_mode()
